@@ -1,0 +1,8 @@
+/target
+dist/
+.deb-*/
+.rpmbuild/
+.AppDir/
+*.swp
+.DS_Store
+Thumbs.db

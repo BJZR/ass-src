@@ -1,0 +1,62 @@
+[server]
+host = "0.0.0.0"
+http_port = 80
+https_port = 443
+ssl_email = "admin@ejemplo.com"
+acme_provider = "letsencrypt"
+force_https = true
+
+[[app]]
+name = "mi-api"
+domain = "api.ejemplo.com"
+build = "go build -o app main.go"
+exec = "./app"
+port = 8080
+auto_update = true
+poll_interval_secs = 60
+security_headers = true
+
+[app.env]
+DATABASE_URL = "postgres://localhost/mydb"
+APP_ENV = "production"
+
+[[app]]
+name = "frontend"
+domain = "ejemplo.com"
+workdir = "/var/www/frontend"
+
+[[app.static_routes]]
+prefix = "/"
+dir = "/var/www/frontend/dist"
+compress = true
+
+[tunnel]
+enabled = false
+relay_server = "relay.ejemplo.com:7000"
+auth_token = "mi-token-secreto"
+
+[[tunnel.tunnels]]
+name = "dev-api"
+local_port = 3000
+proto = "http"
+remote_subdomain = "dev"
+
+[firewall]
+enabled = true
+rate_limit_rps = 100
+rate_limit_burst = 200
+allowlist = ["127.0.0.1/32", "10.0.0.0/8"]
+blocklist = []
+block_no_host = true
+max_body_mb = 10
+
+[updater]
+auto_check = true
+channel = "stable"
+
+[logging]
+level = "info"
+format = "pretty"
+file = true
+rotation = "daily"
+keep = 7

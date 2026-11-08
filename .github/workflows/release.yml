@@ -1,0 +1,420 @@
+# ═══════════════════════════════════════════════════════════════════
+#  ASS — CI/CD Pipeline
+#  ass-src → compila → empaqueta → publica en ass-deploy (GitHub Pages)
+#
+#  Disparadores:
+#    - Push de tag v* (ej: v0.2.0) → release completo
+#    - Push a main                 → build de verificación
+#    - Pull Request                → build + tests
+# ═══════════════════════════════════════════════════════════════════
+name: Build, Package & Deploy
+
+on:
+  push:
+    tags:
+      - 'v*'
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      deploy:
+        description: 'Forzar despliegue aunque no sea un tag'
+        required: false
+        default: 'false'
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  #  JOB 1: Tests y lint
+  # ─────────────────────────────────────────────────────────────────
+  test:
+    name: 🧪 Test & Lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Rust estable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: ${{ runner.os }}-cargo-
+
+      - name: cargo fmt --check
+        run: cargo fmt --all -- --check
+
+      - name: cargo clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
+      - name: cargo test
+        run: cargo test --all-features
+
+  # ─────────────────────────────────────────────────────────────────
+  #  JOB 2: Compilación cruzada para todas las plataformas
+  # ─────────────────────────────────────────────────────────────────
+  build:
+    name: 🔨 Build (${{ matrix.name }})
+    needs: test
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # ── Linux ──────────────────────────────────────────────
+          - name: linux-amd64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            bin_suffix: ""
+            pkg_suffix: "linux-amd64.bin"
+
+          - name: linux-arm64
+            runner: ubuntu-latest
+            target: aarch64-unknown-linux-musl
+            bin_suffix: ""
+            pkg_suffix: "linux-arm64.bin"
+            use_cross: true
+
+          # ── macOS ──────────────────────────────────────────────
+          - name: darwin-amd64
+            runner: macos-latest
+            target: x86_64-apple-darwin
+            bin_suffix: ""
+            pkg_suffix: "darwin-amd64.bin"
+
+          - name: darwin-arm64
+            runner: macos-latest
+            target: aarch64-apple-darwin
+            bin_suffix: ""
+            pkg_suffix: "darwin-arm64.bin"
+
+          # ── Windows ────────────────────────────────────────────
+          - name: windows-amd64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_suffix: ".exe"
+            pkg_suffix: "windows-amd64.exe"
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Instalar Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache Cargo
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-${{ matrix.target }}-cargo-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Instalar musl-tools (Linux)
+        if: contains(matrix.target, 'musl') && !matrix.use_cross
+        run: sudo apt-get install -y musl-tools
+
+      - name: Instalar cross (compilación cruzada)
+        if: matrix.use_cross
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build con cross
+        if: matrix.use_cross
+        run: cross build --release --target ${{ matrix.target }}
+
+      - name: Build con cargo
+        if: "!matrix.use_cross"
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Preparar artefacto
+        shell: bash
+        run: |
+          SRC="target/${{ matrix.target }}/release/ss${{ matrix.bin_suffix }}"
+          DST="ss-${{ matrix.pkg_suffix }}"
+          cp "${SRC}" "${DST}"
+          echo "BIN_PATH=${DST}" >> "${GITHUB_ENV}"
+
+      - name: Subir artefacto
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.name }}
+          path: ss-${{ matrix.pkg_suffix }}
+          retention-days: 7
+
+  # ─────────────────────────────────────────────────────────────────
+  #  JOB 3: Empaquetado (.deb, .rpm, AppImage)
+  # ─────────────────────────────────────────────────────────────────
+  package:
+    name: 📦 Package
+    needs: build
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.deploy == 'true')
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Extraer versión
+        id: version
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep '^version' Cargo.toml | head -1 | sed 's/.*= *"//;s/"//')"
+          fi
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+          echo "version=${VERSION}" >> "${GITHUB_OUTPUT}"
+
+      - name: Descargar todos los binarios
+        uses: actions/download-artifact@v4
+        with:
+          pattern: bin-*
+          path: dist/packages
+          merge-multiple: true
+
+      - name: Instalar herramientas de empaquetado
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y dpkg fakeroot rpm squashfs-tools zsync wget
+
+      - name: Descargar appimagetool
+        run: |
+          wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
+            -O /usr/local/bin/appimagetool
+          chmod +x /usr/local/bin/appimagetool
+          # Extraer para evitar FUSE en CI
+          /usr/local/bin/appimagetool --appimage-extract >/dev/null 2>&1 || true
+          if [ -d squashfs-root ]; then
+            mv squashfs-root /opt/appimagetool-extracted
+            ln -sf /opt/appimagetool-extracted/AppRun /usr/local/bin/appimagetool
+          fi
+
+      - name: Construir .deb
+        run: bash packaging/deb/build.sh "${VERSION}" dist
+
+      - name: Construir .rpm
+        run: bash packaging/rpm/build.sh "${VERSION}" dist
+
+      - name: Construir AppImage
+        run: bash packaging/appimage/build.sh "${VERSION}" dist
+        env:
+          ARCH: x86_64
+
+      - name: Generar checksums
+        run: |
+          cd dist/packages
+          sha256sum * > checksums.txt
+          echo "Checksums SHA-256:"
+          cat checksums.txt
+
+      - name: Generar latest.json
+        run: |
+          cat > dist/packages/latest.json <<JSON
+          {
+            "version": "${VERSION}",
+            "date": "$(date -u +%Y-%m-%dT%H:%M:%SZ)",
+            "commit": "${GITHUB_SHA}",
+            "packages": {
+              "linux-amd64-bin":      "ss-linux-amd64.bin",
+              "linux-arm64-bin":      "ss-linux-arm64.bin",
+              "linux-amd64-deb":      "ss_${VERSION}_amd64.deb",
+              "linux-arm64-deb":      "ss_${VERSION}_arm64.deb",
+              "linux-amd64-rpm":      "ss-${VERSION}-1.x86_64.rpm",
+              "linux-amd64-appimage": "SS-${VERSION}-x86_64.AppImage",
+              "darwin-amd64-bin":     "ss-darwin-amd64.bin",
+              "darwin-arm64-bin":     "ss-darwin-arm64.bin",
+              "windows-amd64-exe":    "ss-windows-amd64.exe"
+            }
+          }
+          JSON
+          cat dist/packages/latest.json
+
+      - name: Subir artefactos de paquetes
+        uses: actions/upload-artifact@v4
+        with:
+          name: packages
+          path: dist/packages/
+          retention-days: 30
+
+  # ─────────────────────────────────────────────────────────────────
+  #  JOB 4: GitHub Release (en ass-src)
+  # ─────────────────────────────────────────────────────────────────
+  release:
+    name: 🏷️ GitHub Release
+    needs: package
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Descargar paquetes
+        uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: dist/packages
+
+      - name: Crear GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: "ASS v${{ github.ref_name }}"
+          body: |
+            ## SS ${{ github.ref_name }}
+
+            ### Instalación rápida
+            ```bash
+            curl -fsSL https://ass-project.github.io/ass-deploy/install.sh | bash
+            ```
+
+            ### Paquetes disponibles
+
+            | Plataforma | Tipo | Archivo |
+            |---|---|---|
+            | Linux x86_64 | Binario | `ss-linux-amd64.bin` |
+            | Linux ARM64 | Binario | `ss-linux-arm64.bin` |
+            | Linux x86_64 | .deb | `ss_${{ github.ref_name }}_amd64.deb` |
+            | Linux x86_64 | .rpm | `ss-${{ github.ref_name }}-1.x86_64.rpm` |
+            | Linux x86_64 | AppImage | `SS-${{ github.ref_name }}-x86_64.AppImage` |
+            | macOS Intel | Binario | `ss-darwin-amd64.bin` |
+            | macOS Apple Silicon | Binario | `ss-darwin-arm64.bin` |
+            | Windows x64 | .exe | `ss-windows-amd64.exe` |
+
+            ### Verificar checksums
+            ```bash
+            sha256sum -c checksums.txt
+            ```
+          files: |
+            dist/packages/*.bin
+            dist/packages/*.deb
+            dist/packages/*.rpm
+            dist/packages/*.AppImage
+            dist/packages/*.exe
+            dist/packages/checksums.txt
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-beta') || contains(github.ref_name, '-rc') }}
+
+  # ─────────────────────────────────────────────────────────────────
+  #  JOB 5: Deploy a ass-deploy (GitHub Pages)
+  # ─────────────────────────────────────────────────────────────────
+  deploy-pages:
+    name: 🚀 Deploy → ass-deploy
+    needs: package
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && (startsWith(github.ref, 'refs/tags/v') || github.event.inputs.deploy == 'true')
+    steps:
+      - name: Checkout ass-src
+        uses: actions/checkout@v4
+        with:
+          path: ass-src
+
+      - name: Checkout ass-deploy
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ github.repository_owner }}/ass-deploy
+          token: ${{ secrets.DEPLOY_TOKEN }}
+          path: ass-deploy
+
+      - name: Descargar paquetes construidos
+        uses: actions/download-artifact@v4
+        with:
+          name: packages
+          path: packages-built
+
+      - name: Extraer versión
+        run: |
+          if [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
+            VERSION="${GITHUB_REF#refs/tags/v}"
+          else
+            VERSION="$(grep '^version' ass-src/Cargo.toml | head -1 | sed 's/.*= *"//;s/"//')"
+          fi
+          echo "VERSION=${VERSION}" >> "${GITHUB_ENV}"
+
+      - name: Actualizar ass-deploy
+        run: |
+          # Copiar página web (landing page)
+          rsync -av --exclude='.git' --exclude='packages/' ass-src/ass-deploy-site/ ass-deploy/ 2>/dev/null || true
+
+          # Alternativamente, si la landing está en ass-src/landing/:
+          # rsync -av ass-src/landing/ ass-deploy/
+
+          # Crear directorio de paquetes
+          mkdir -p ass-deploy/packages
+
+          # Copiar paquetes nuevos
+          cp packages-built/*.bin  ass-deploy/packages/ 2>/dev/null || true
+          cp packages-built/*.deb  ass-deploy/packages/ 2>/dev/null || true
+          cp packages-built/*.rpm  ass-deploy/packages/ 2>/dev/null || true
+          cp packages-built/*.AppImage ass-deploy/packages/ 2>/dev/null || true
+          cp packages-built/*.exe  ass-deploy/packages/ 2>/dev/null || true
+          cp packages-built/checksums.txt ass-deploy/packages/ 2>/dev/null || true
+          cp packages-built/latest.json   ass-deploy/packages/ 2>/dev/null || true
+
+          # Actualizar versión en index.html
+          if [ -f ass-deploy/index.html ]; then
+            sed -i "s/v[0-9]\+\.[0-9]\+\.[0-9]\+/v${VERSION}/g" ass-deploy/index.html
+          fi
+
+          # Actualizar instaladores
+          if [ -f ass-src/ass-deploy/install.sh ]; then
+            cp ass-src/ass-deploy/install.sh ass-deploy/install.sh
+          fi
+          if [ -f ass-src/ass-deploy/install.ps1 ]; then
+            cp ass-src/ass-deploy/install.ps1 ass-deploy/install.ps1
+          fi
+
+      - name: Configurar Git en ass-deploy
+        run: |
+          cd ass-deploy
+          git config user.name "SS Deploy Bot"
+          git config user.email "bot@ass-project.dev"
+
+      - name: Commit y push a ass-deploy
+        run: |
+          cd ass-deploy
+          git add -A
+          if git diff --staged --quiet; then
+            echo "Sin cambios que publicar."
+          else
+            git commit -m "🚀 Release v${VERSION} — $(date -u +%Y-%m-%dT%H:%M:%SZ)
+
+            Paquetes:
+            - ss-linux-amd64.bin
+            - ss-linux-arm64.bin
+            - ss_${VERSION}_amd64.deb
+            - ss-${VERSION}-1.x86_64.rpm
+            - SS-${VERSION}-x86_64.AppImage
+            - ss-darwin-*.bin
+            - ss-windows-amd64.exe
+
+            Fuente: ${{ github.repository }}@${GITHUB_SHA}
+            "
+            git push origin main
+            echo "✓ ass-deploy actualizado"
+          fi
+
+      - name: Resumen del deploy
+        run: |
+          echo "## 🚀 Deploy completado" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "**Versión:** v${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
+          echo "**URL:** https://ass-project.github.io/ass-deploy/" >> "${GITHUB_STEP_SUMMARY}"
+          echo "" >> "${GITHUB_STEP_SUMMARY}"
+          echo "### Paquetes publicados" >> "${GITHUB_STEP_SUMMARY}"
+          ls packages-built/ | while read f; do
+            SIZE=$(du -sh "packages-built/${f}" | cut -f1)
+            echo "- \`${f}\` (${SIZE})" >> "${GITHUB_STEP_SUMMARY}"
+          done
