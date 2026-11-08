@@ -277,7 +277,7 @@ jobs:
 
             ### Instalación rápida
             ```bash
-            curl -fsSL https://ass-project.github.io/ass-deploy/install.sh | bash
+            curl -fsSL https://BJZR.github.io/ass-deploy/install.sh | bash
             ```
 
             ### Paquetes disponibles
@@ -380,7 +380,7 @@ jobs:
         run: |
           cd ass-deploy
           git config user.name "SS Deploy Bot"
-          git config user.email "bot@ass-project.dev"
+          git config user.email "bot@BJZR.dev"
 
       - name: Commit y push a ass-deploy
         run: |
@@ -411,7 +411,7 @@ jobs:
           echo "## 🚀 Deploy completado" >> "${GITHUB_STEP_SUMMARY}"
           echo "" >> "${GITHUB_STEP_SUMMARY}"
           echo "**Versión:** v${VERSION}" >> "${GITHUB_STEP_SUMMARY}"
-          echo "**URL:** https://ass-project.github.io/ass-deploy/" >> "${GITHUB_STEP_SUMMARY}"
+          echo "**URL:** https://BJZR.github.io/ass-deploy/" >> "${GITHUB_STEP_SUMMARY}"
           echo "" >> "${GITHUB_STEP_SUMMARY}"
           echo "### Paquetes publicados" >> "${GITHUB_STEP_SUMMARY}"
           ls packages-built/ | while read f; do
