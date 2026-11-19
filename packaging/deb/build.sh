@@ -15,7 +15,7 @@ for ENTRY in "${ARCH_LIST[@]}"; do
   # Estructura de directorios Debian
   mkdir -p "${ROOT}/DEBIAN"
   mkdir -p "${ROOT}/usr/local/bin"
-  mkdir -p "${ROOT}/etc/ss"
+  mkdir -p "${ROOT}/etc/ass"
   mkdir -p "${ROOT}/lib/systemd/system"
   mkdir -p "${ROOT}/usr/share/doc/ss"
   mkdir -p "${ROOT}/usr/share/man/man1"
@@ -89,7 +89,7 @@ fi
 # Recargar y habilitar systemd
 if command -v systemctl &>/dev/null && systemctl is-system-running &>/dev/null; then
   systemctl daemon-reload
-  echo "SS instalado. Para iniciar: systemctl enable --now ss"
+  echo "ASS instalado. Para iniciar: systemctl enable --now ass"
 fi
 POSTINST
   chmod 755 "${ROOT}/DEBIAN/postinst"
@@ -99,8 +99,8 @@ POSTINST
 #!/bin/bash
 set -e
 if command -v systemctl &>/dev/null; then
-  systemctl stop ss 2>/dev/null || true
-  systemctl disable ss 2>/dev/null || true
+  systemctl stop ass 2>/dev/null || true
+  systemctl disable ass 2>/dev/null || true
 fi
 PRERM
   chmod 755 "${ROOT}/DEBIAN/prerm"

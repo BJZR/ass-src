@@ -78,7 +78,7 @@ APPIMAGE_NAME="SS-${VERSION}-x86_64.AppImage"
 
 if command -v appimagetool &>/dev/null; then
   # Incluir información de actualización automática (zsync)
-  UPDATE_INFO="gh-releases-zsync|ass-project|ass-src|latest|SS-*-x86_64.AppImage.zsync"
+  UPDATE_INFO="gh-releases-zsync|BJZR|ass-deploy|latest|SS-*-x86_64.AppImage.zsync"
   ARCH=x86_64 appimagetool \
     --updateinformation "${UPDATE_INFO}" \
     "${APPDIR}" \
@@ -87,7 +87,7 @@ if command -v appimagetool &>/dev/null; then
   # Generar zsync para AppImageUpdate
   if command -v zsyncmake &>/dev/null; then
     zsyncmake \
-      -u "https://ass-project.github.io/ass-deploy/packages/${APPIMAGE_NAME}" \
+      -u "https://BJZR.github.io/ass-deploy/packages/${APPIMAGE_NAME}" \
       -o "${DIST}/packages/${APPIMAGE_NAME}.zsync" \
       "${DIST}/packages/${APPIMAGE_NAME}"
     echo "    ✓ .zsync generado para auto-update"

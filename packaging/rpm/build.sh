@@ -39,7 +39,7 @@ y túneles NAT.
 
 %install
 install -Dm 755 %{_sourcedir}/ss-${RPM_ARCH} %{buildroot}/usr/local/bin/ass
-install -dm 750 %{buildroot}/etc/ss
+install -dm 750 %{buildroot}/etc/ass
 install -dm 750 %{buildroot}/etc/ass/certs
 install -dm 755 %{buildroot}/var/lib/ass
 install -dm 755 %{buildroot}/var/log/ass
@@ -73,7 +73,7 @@ UNIT
 %files
 /usr/local/bin/ass
 /etc/ass/ass.toml.example
-%dir /etc/ss
+%dir /etc/ass
 %dir /etc/ass/certs
 %dir /var/lib/ass
 %dir /var/log/ass
@@ -86,12 +86,12 @@ fi
 if [ ! -f /etc/ass/ass.toml ]; then
   cp /etc/ass/ass.toml.example /etc/ass/ass.toml
 fi
-echo "SS instalado. Para iniciar: systemctl enable --now ss"
+echo "ASS instalado. Para iniciar: systemctl enable --now ass"
 
 %preun
 if command -v systemctl &>/dev/null; then
-  systemctl stop ss 2>/dev/null || true
-  systemctl disable ss 2>/dev/null || true
+  systemctl stop ass 2>/dev/null || true
+  systemctl disable ass 2>/dev/null || true
 fi
 
 %changelog
