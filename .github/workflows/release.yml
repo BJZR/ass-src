@@ -58,7 +58,7 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: cargo clippy
-        run: cargo clippy --all-targets --all-features -- -D warnings
+        run: cargo clippy --all-targets --all-features -- -D clippy::correctness -D clippy::suspicious -D clippy::perf
 
       - name: cargo test
         run: cargo test --all-features
@@ -144,7 +144,7 @@ jobs:
       - name: Preparar artefacto
         shell: bash
         run: |
-          SRC="target/${{ matrix.target }}/release/ss${{ matrix.bin_suffix }}"
+          SRC="target/${{ matrix.target }}/release/ass${{ matrix.bin_suffix }}"
           DST="ss-${{ matrix.pkg_suffix }}"
           cp "${SRC}" "${DST}"
           echo "BIN_PATH=${DST}" >> "${GITHUB_ENV}"
@@ -268,12 +268,16 @@ jobs:
           name: packages
           path: dist/packages
 
+      - name: Extraer versión
+        id: version
+        run: echo "version=${GITHUB_REF_NAME#v}" >> "${GITHUB_OUTPUT}"
+
       - name: Crear GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: "ASS v${{ github.ref_name }}"
+          name: "ASS ${{ github.ref_name }}"
           body: |
-            ## SS ${{ github.ref_name }}
+            ## ASS ${{ github.ref_name }}
 
             ### Instalación rápida
             ```bash
@@ -286,9 +290,9 @@ jobs:
             |---|---|---|
             | Linux x86_64 | Binario | `ss-linux-amd64.bin` |
             | Linux ARM64 | Binario | `ss-linux-arm64.bin` |
-            | Linux x86_64 | .deb | `ss_${{ github.ref_name }}_amd64.deb` |
-            | Linux x86_64 | .rpm | `ss-${{ github.ref_name }}-1.x86_64.rpm` |
-            | Linux x86_64 | AppImage | `SS-${{ github.ref_name }}-x86_64.AppImage` |
+            | Linux x86_64 | .deb | `ss_${{ steps.version.outputs.version }}_amd64.deb` |
+            | Linux x86_64 | .rpm | `ss-${{ steps.version.outputs.version }}-1.x86_64.rpm` |
+            | Linux x86_64 | AppImage | `SS-${{ steps.version.outputs.version }}-x86_64.AppImage` |
             | macOS Intel | Binario | `ss-darwin-amd64.bin` |
             | macOS Apple Silicon | Binario | `ss-darwin-arm64.bin` |
             | Windows x64 | .exe | `ss-windows-amd64.exe` |

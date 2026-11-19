@@ -87,7 +87,9 @@ impl TlsManager {
                                     warn!(domain = %domain, "Certificado expirado en disco; se renovará");
                                 }
                             }
-                            Err(e) => warn!(domain = %domain, error = %e, "Error al cargar certificado"),
+                            Err(e) => {
+                                warn!(domain = %domain, error = %e, "Error al cargar certificado")
+                            }
                         }
                     }
                 }
@@ -101,12 +103,13 @@ impl TlsManager {
         let cert_pem = std::fs::read(cert_path)?;
         let (_, pem) = x509_parser::pem::parse_x509_pem(&cert_pem)
             .map_err(|e| anyhow::anyhow!("Error al parsear PEM: {:?}", e))?;
-        let x509 = pem.parse_x509()
+        let x509 = pem
+            .parse_x509()
             .map_err(|e| anyhow::anyhow!("Error al parsear X.509: {:?}", e))?;
 
         let not_after = x509.validity().not_after.to_datetime();
-        let expires_at = DateTime::from_timestamp(not_after.unix_timestamp(), 0)
-            .unwrap_or_default();
+        let expires_at =
+            DateTime::from_timestamp(not_after.unix_timestamp(), 0).unwrap_or_default();
 
         let issued_by = x509.issuer().to_string();
 
@@ -124,7 +127,10 @@ impl TlsManager {
         let tls_cfg = self.build_tls_config(&info)?;
         let domain = info.domain.clone();
         self.certs.write().await.insert(domain.clone(), info);
-        self.tls_configs.write().await.insert(domain, Arc::new(tls_cfg));
+        self.tls_configs
+            .write()
+            .await
+            .insert(domain, Arc::new(tls_cfg));
         Ok(())
     }
 
@@ -153,13 +159,17 @@ impl TlsManager {
 
     /// Emite o renueva el certificado para `domain` via ACME HTTP-01
     pub async fn provision_cert(&self, domain: &str) -> Result<CertInfo> {
-        let email = self.config.ssl_email.as_deref()
+        let email = self
+            .config
+            .ssl_email
+            .as_deref()
             .context("ssl_email no configurado; TLS automático requiere un email")?;
 
         info!(domain = %domain, "Iniciando provisión ACME...");
 
         let directory_url = self.config.acme_provider.directory_url();
-        let info = acme::provision(domain, email, directory_url, &self.config.certs_dir).await
+        let info = acme::provision(domain, email, directory_url, &self.config.certs_dir)
+            .await
             .with_context(|| format!("Fallo en ACME para {}", domain))?;
 
         self.store_cert(info.clone()).await?;
@@ -202,7 +212,10 @@ impl TlsManager {
             for domain in domains {
                 let needs = {
                     let certs = self.certs.read().await;
-                    certs.get(&domain).map(|c| c.expires_in_less_than(30)).unwrap_or(false)
+                    certs
+                        .get(&domain)
+                        .map(|c| c.expires_in_less_than(30))
+                        .unwrap_or(false)
                 };
                 if needs {
                     info!(domain = %domain, "Renovando certificado (< 30 días para expirar)");
@@ -258,8 +271,8 @@ mod acme {
     use anyhow::{Context, Result};
     use chrono::{DateTime, Utc};
     use instant_acme::{
-        Account, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt,
-        NewAccount, NewOrder, OrderStatus,
+        Account, AuthorizationStatus, ChallengeType, Identifier, LetsEncrypt, NewAccount, NewOrder,
+        OrderStatus,
     };
     use rcgen::{CertificateParams, DistinguishedName, KeyPair};
     use std::path::Path;
@@ -295,12 +308,17 @@ mod acme {
         // Crear orden
         let identifier = Identifier::Dns(domain.to_string());
         let mut order = account
-            .new_order(&NewOrder { identifiers: &[identifier] })
+            .new_order(&NewOrder {
+                identifiers: &[identifier],
+            })
             .await
             .context("Fallo al crear orden ACME")?;
 
         // Procesar autorizaciones
-        let authorizations = order.authorizations().await.context("Fallo al obtener autorizaciones")?;
+        let authorizations = order
+            .authorizations()
+            .await
+            .context("Fallo al obtener autorizaciones")?;
 
         for authz in &authorizations {
             match authz.status {
@@ -351,7 +369,9 @@ mod acme {
             .context("Fallo al crear CertificateParams")?;
         params.distinguished_name = DistinguishedName::new();
 
-        let csr = params.serialize_request(&key_pair).context("Fallo al serializar CSR")?;
+        let csr = params
+            .serialize_request(&key_pair)
+            .context("Fallo al serializar CSR")?;
 
         order
             .finalize(csr.der())
@@ -374,9 +394,8 @@ mod acme {
         std::fs::write(&key_path, key_pair.serialize_pem())?;
 
         // Parsear fecha de expiración del primer cert de la cadena
-        let expires_at = parse_expiry(&cert_chain_pem).unwrap_or_else(|| {
-            Utc::now() + chrono::Duration::days(89)
-        });
+        let expires_at = parse_expiry(&cert_chain_pem)
+            .unwrap_or_else(|| Utc::now() + chrono::Duration::days(89));
 
         Ok(CertInfo {
             domain: domain.to_string(),

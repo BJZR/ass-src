@@ -131,14 +131,10 @@ pub enum CertAction {
     List,
 
     /// Muestra detalles de un certificado
-    Info {
-        domain: String,
-    },
+    Info { domain: String },
 
     /// Revoca un certificado
-    Revoke {
-        domain: String,
-    },
+    Revoke { domain: String },
 }
 
 #[derive(Args, Debug)]
@@ -188,7 +184,5 @@ pub enum TunnelAction {
     },
 
     /// Cierra un túnel activo
-    Close {
-        name: String,
-    },
+    Close { name: String },
 }

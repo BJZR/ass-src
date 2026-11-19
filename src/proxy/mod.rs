@@ -63,7 +63,9 @@ impl Router {
             let target = if let Some(port) = app.port {
                 RouteTarget::Upstream { port }
             } else if let Some(ref socket) = app.socket {
-                RouteTarget::UnixSocket { path: socket.clone() }
+                RouteTarget::UnixSocket {
+                    path: socket.clone(),
+                }
             } else if let Some(first_static) = app.static_routes.first() {
                 RouteTarget::Static {
                     dir: first_static.dir.clone(),
@@ -144,12 +146,12 @@ impl ProxyServer {
     pub async fn serve_http(self: Arc<Self>) -> Result<()> {
         let addr: SocketAddr = format!(
             "{}:{}",
-            self.config.server.host,
-            self.config.server.http_port
+            self.config.server.host, self.config.server.http_port
         )
         .parse()?;
 
-        let listener = TcpListener::bind(addr).await
+        let listener = TcpListener::bind(addr)
+            .await
             .with_context(|| format!("No se pudo bind en {}", addr))?;
 
         info!(addr = %addr, "Servidor HTTP escuchando");
@@ -187,12 +189,12 @@ impl ProxyServer {
     pub async fn serve_https(self: Arc<Self>) -> Result<()> {
         let addr: SocketAddr = format!(
             "{}:{}",
-            self.config.server.host,
-            self.config.server.https_port
+            self.config.server.host, self.config.server.https_port
         )
         .parse()?;
 
-        let listener = TcpListener::bind(addr).await
+        let listener = TcpListener::bind(addr)
+            .await
             .with_context(|| format!("No se pudo bind en {}", addr))?;
 
         info!(addr = %addr, "Servidor HTTPS escuchando");
@@ -265,19 +267,26 @@ impl ProxyServer {
             if let Some(key_auth) = get_http01_token(token).await {
                 return Ok(text_response(StatusCode::OK, key_auth));
             }
-            return Ok(text_response(StatusCode::NOT_FOUND, "Not Found".to_string()));
+            return Ok(text_response(
+                StatusCode::NOT_FOUND,
+                "Not Found".to_string(),
+            ));
         }
 
         // Redirección HTTP → HTTPS
         if self.config.server.force_https {
-            let host = req.headers()
+            let host = req
+                .headers()
                 .get(header::HOST)
                 .and_then(|h| h.to_str().ok())
                 .unwrap_or("localhost");
             let location = format!(
                 "https://{}{}",
                 host,
-                req.uri().path_and_query().map(|p| p.as_str()).unwrap_or("/")
+                req.uri()
+                    .path_and_query()
+                    .map(|p| p.as_str())
+                    .unwrap_or("/")
             );
             let mut resp = Response::new(Full::new(Bytes::new()));
             *resp.status_mut() = StatusCode::MOVED_PERMANENTLY;
@@ -305,7 +314,8 @@ impl ProxyServer {
         peer_ip: IpAddr,
     ) -> Result<Response<Full<Bytes>>, hyper::Error> {
         // Extraer host
-        let host = req.headers()
+        let host = req
+            .headers()
             .get(header::HOST)
             .and_then(|h| h.to_str().ok())
             .map(|h| h.split(':').next().unwrap_or(h))
@@ -313,15 +323,21 @@ impl ProxyServer {
             .to_string();
 
         // Content-Length para firewall
-        let content_length = req.headers()
+        let content_length = req
+            .headers()
             .get(header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.parse::<u64>().ok());
 
         // Verificación de firewall
-        match self.firewall.check(peer_ip, Some(&host), content_length).await {
+        match self
+            .firewall
+            .check(peer_ip, Some(&host), content_length)
+            .await
+        {
             crate::firewall::FirewallDecision::Deny(reason) => {
-                let status = StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::FORBIDDEN);
+                let status =
+                    StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::FORBIDDEN);
                 return Ok(text_response(status, reason.message().to_string()));
             }
             crate::firewall::FirewallDecision::Allow => {}
@@ -340,16 +356,17 @@ impl ProxyServer {
         };
 
         match &route.target {
-            RouteTarget::Upstream { port } => {
-                self.proxy_upstream(req, *port, &route).await
-            }
+            RouteTarget::Upstream { port } => self.proxy_upstream(req, *port, &route).await,
             RouteTarget::Static { dir, compress } => {
                 self.serve_static(req, dir, *compress, &route).await
             }
             RouteTarget::UnixSocket { path } => {
                 // Unix socket proxy (simplificado — en producción usar hyper-unix-connector)
                 warn!("Unix socket proxy no implementado en este build; derivando a 502");
-                Ok(text_response(StatusCode::BAD_GATEWAY, "Unix socket proxy no disponible".to_string()))
+                Ok(text_response(
+                    StatusCode::BAD_GATEWAY,
+                    "Unix socket proxy no disponible".to_string(),
+                ))
             }
         }
     }
@@ -363,7 +380,8 @@ impl ProxyServer {
         route: &Route,
     ) -> Result<Response<Full<Bytes>>, hyper::Error> {
         // Construir URI upstream
-        let path_query = req.uri()
+        let path_query = req
+            .uri()
             .path_and_query()
             .map(|p| p.as_str())
             .unwrap_or("/");
@@ -421,7 +439,10 @@ impl ProxyServer {
         route: &Route,
     ) -> Result<Response<Full<Bytes>>, hyper::Error> {
         if req.method() != Method::GET && req.method() != Method::HEAD {
-            return Ok(text_response(StatusCode::METHOD_NOT_ALLOWED, "Método no permitido".to_string()));
+            return Ok(text_response(
+                StatusCode::METHOD_NOT_ALLOWED,
+                "Método no permitido".to_string(),
+            ));
         }
 
         let path = req.uri().path();
@@ -440,12 +461,16 @@ impl ProxyServer {
                 let mut resp = Response::new(Full::new(Bytes::from(bytes)));
                 resp.headers_mut().insert(
                     header::CONTENT_TYPE,
-                    HeaderValue::from_str(mime).unwrap_or(HeaderValue::from_static("application/octet-stream")),
+                    HeaderValue::from_str(mime)
+                        .unwrap_or(HeaderValue::from_static("application/octet-stream")),
                 );
                 self.apply_route_headers(&mut resp, route);
                 Ok(resp)
             }
-            Err(_) => Ok(text_response(StatusCode::NOT_FOUND, "Archivo no encontrado".to_string())),
+            Err(_) => Ok(text_response(
+                StatusCode::NOT_FOUND,
+                "Archivo no encontrado".to_string(),
+            )),
         }
     }
 
@@ -475,10 +500,8 @@ impl ProxyServer {
         }
 
         // Header de identificación
-        resp.headers_mut().insert(
-            "X-Served-By",
-            HeaderValue::from_static("ASS/0.1"),
-        );
+        resp.headers_mut()
+            .insert("X-Served-By", HeaderValue::from_static("ASS/0.1"));
     }
 }
 

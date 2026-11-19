@@ -379,35 +379,87 @@ mod defaults {
     use super::AcmeProvider;
     use std::path::PathBuf;
 
-    pub fn host() -> String { "0.0.0.0".into() }
-    pub fn http_port() -> u16 { 80 }
-    pub fn https_port() -> u16 { 443 }
-    pub fn certs_dir() -> PathBuf { PathBuf::from("/etc/ass/certs") }
-    pub fn data_dir() -> PathBuf { PathBuf::from("/var/lib/ass") }
-    pub fn log_dir() -> PathBuf { PathBuf::from("/var/log/ass") }
-    pub fn acme_provider() -> AcmeProvider { AcmeProvider::LetsEncrypt }
-    pub fn force_https() -> bool { true }
-    pub fn proxy_timeout() -> u64 { 30 }
-    pub fn git_branch() -> String { "main".into() }
-    pub fn poll_interval() -> u64 { 60 }
-    pub fn max_restarts() -> u32 { 10 }
-    pub fn restart_delay() -> u64 { 2 }
-    pub fn tls_enabled() -> bool { true }
-    pub fn security_headers() -> bool { true }
-    pub fn tunnel_proto() -> String { "http".into() }
-    pub fn firewall_enabled() -> bool { true }
-    pub fn rate_limit_rps() -> u32 { 100 }
-    pub fn rate_limit_burst() -> u32 { 200 }
-    pub fn block_no_host() -> bool { true }
-    pub fn max_body_mb() -> u64 { 10 }
+    pub fn host() -> String {
+        "0.0.0.0".into()
+    }
+    pub fn http_port() -> u16 {
+        80
+    }
+    pub fn https_port() -> u16 {
+        443
+    }
+    pub fn certs_dir() -> PathBuf {
+        PathBuf::from("/etc/ass/certs")
+    }
+    pub fn data_dir() -> PathBuf {
+        PathBuf::from("/var/lib/ass")
+    }
+    pub fn log_dir() -> PathBuf {
+        PathBuf::from("/var/log/ass")
+    }
+    pub fn acme_provider() -> AcmeProvider {
+        AcmeProvider::LetsEncrypt
+    }
+    pub fn force_https() -> bool {
+        true
+    }
+    pub fn proxy_timeout() -> u64 {
+        30
+    }
+    pub fn git_branch() -> String {
+        "main".into()
+    }
+    pub fn poll_interval() -> u64 {
+        60
+    }
+    pub fn max_restarts() -> u32 {
+        10
+    }
+    pub fn restart_delay() -> u64 {
+        2
+    }
+    pub fn tls_enabled() -> bool {
+        true
+    }
+    pub fn security_headers() -> bool {
+        true
+    }
+    pub fn tunnel_proto() -> String {
+        "http".into()
+    }
+    pub fn firewall_enabled() -> bool {
+        true
+    }
+    pub fn rate_limit_rps() -> u32 {
+        100
+    }
+    pub fn rate_limit_burst() -> u32 {
+        200
+    }
+    pub fn block_no_host() -> bool {
+        true
+    }
+    pub fn max_body_mb() -> u64 {
+        10
+    }
     pub fn update_url() -> String {
         "https://api.github.com/repos/ass-project/ss/releases/latest".into()
     }
-    pub fn update_channel() -> String { "stable".into() }
-    pub fn log_level() -> String { "info".into() }
-    pub fn log_format() -> String { "pretty".into() }
-    pub fn log_rotation() -> String { "daily".into() }
-    pub fn log_keep() -> usize { 7 }
+    pub fn update_channel() -> String {
+        "stable".into()
+    }
+    pub fn log_level() -> String {
+        "info".into()
+    }
+    pub fn log_format() -> String {
+        "pretty".into()
+    }
+    pub fn log_rotation() -> String {
+        "daily".into()
+    }
+    pub fn log_keep() -> usize {
+        7
+    }
 }
 
 // ─────────────────────────────────────────────
@@ -417,15 +469,17 @@ mod defaults {
 impl Config {
     /// Carga la configuración desde el archivo (auto-detecta .toml / .json)
     pub fn load(path: &Path) -> Result<Self> {
-        let content = std::fs::read_to_string(path)
-            .with_context(|| format!("No se pudo leer el archivo de configuración: {}", path.display()))?;
+        let content = std::fs::read_to_string(path).with_context(|| {
+            format!(
+                "No se pudo leer el archivo de configuración: {}",
+                path.display()
+            )
+        })?;
 
         let cfg: Config = if path.extension().map(|e| e == "json").unwrap_or(false) {
-            serde_json::from_str(&content)
-                .with_context(|| "Error al parsear ass.json")?
+            serde_json::from_str(&content).with_context(|| "Error al parsear ass.json")?
         } else {
-            toml::from_str(&content)
-                .with_context(|| "Error al parsear ass.toml")?
+            toml::from_str(&content).with_context(|| "Error al parsear ass.toml")?
         };
 
         cfg.validate()?;

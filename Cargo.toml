@@ -1,6 +1,6 @@
 [package]
 name = "ass"
-version = "0.1.0"
+version = "0.2.1"
 edition = "2021"
 authors = ["SS Project"]
 description = "ASS - App Service Server: proxy inverso, TLS automático, gestión de procesos y más en un único binario"

@@ -19,7 +19,7 @@ use tracing::{error, info, warn};
 use tracing_subscriber::{fmt, EnvFilter};
 
 use cli::{CertAction, Cli, Commands, TunnelAction};
-use config::Config;
+use config::{Config, LoggingConfig};
 use firewall::Firewall;
 use process::{BuildEngine, ProcessManager};
 use proxy::{ProxyServer, Router};
@@ -34,9 +34,15 @@ use updater::Updater;
 #[tokio::main]
 async fn main() -> Result<()> {
     let cli = Cli::parse();
+    let config_path = resolve_config_path(cli.config.clone());
 
-    // Configurar logging inicial (antes de cargar config)
-    setup_logging(cli.verbose, "info", "pretty");
+    let logging = match &cli.command {
+        Commands::Start(_) => Config::load(&config_path)
+            .map(|c| c.logging)
+            .unwrap_or_default(),
+        _ => LoggingConfig::default(),
+    };
+    setup_logging(cli.verbose, &logging.level, &logging.format);
 
     match cli.command {
         // ── ass init ──────────────────────────
@@ -44,7 +50,7 @@ async fn main() -> Result<()> {
 
         // ── ass validate ──────────────────────
         Commands::Validate => {
-            let path = resolve_config_path(cli.config);
+            let path = config_path.clone();
             match Config::load(&path) {
                 Ok(cfg) => {
                     println!("✓ Configuración válida: {}", path.display());
@@ -64,14 +70,16 @@ async fn main() -> Result<()> {
 
         // ── ass update ────────────────────────
         Commands::Update(args) => {
-            let (cfg, _) = Config::find_and_load().unwrap_or_else(|_| {
-                (Config::default_minimal(), PathBuf::from("ass.toml"))
-            });
+            let (cfg, _) = Config::find_and_load()
+                .unwrap_or_else(|_| (Config::default_minimal(), PathBuf::from("ass.toml")));
             let updater = Updater::new(cfg.updater);
             if args.check_only {
                 let info = updater.check_update().await?;
                 if info.update_available {
-                    println!("Nueva versión disponible: {} → {}", info.current, info.latest);
+                    println!(
+                        "Nueva versión disponible: {} → {}",
+                        info.current, info.latest
+                    );
                     if let Some(notes) = info.changelog {
                         println!("\nCambios:\n{}", notes);
                     }
@@ -86,7 +94,7 @@ async fn main() -> Result<()> {
 
         // ── ass cert ───────────────────────────
         Commands::Cert(cert_cmd) => {
-            let path = resolve_config_path(cli.config);
+            let path = config_path.clone();
             let cfg = Config::load(&path)?;
             let tls_mgr = TlsManager::new(cfg.server.clone());
             tls_mgr.init().await?;
@@ -95,7 +103,11 @@ async fn main() -> Result<()> {
                 CertAction::Issue { domains } => {
                     for domain in &domains {
                         match tls_mgr.provision_cert(domain).await {
-                            Ok(info) => println!("✓ {} — expira {}", domain, info.expires_at.format("%Y-%m-%d")),
+                            Ok(info) => println!(
+                                "✓ {} — expira {}",
+                                domain,
+                                info.expires_at.format("%Y-%m-%d")
+                            ),
                             Err(e) => eprintln!("✗ {}: {}", domain, e),
                         }
                     }
@@ -110,7 +122,10 @@ async fn main() -> Result<()> {
                     // Implementación simplificada
                 }
                 CertAction::Revoke { domain } => {
-                    warn!("Revocación de {} solicitada (no implementada en este build)", domain);
+                    warn!(
+                        "Revocación de {} solicitada (no implementada en este build)",
+                        domain
+                    );
                 }
             }
             Ok(())
@@ -118,7 +133,7 @@ async fn main() -> Result<()> {
 
         // ── ass tunnel ────────────────────────
         Commands::Tunnel(tunnel_cmd) => {
-            let path = resolve_config_path(cli.config);
+            let path = config_path.clone();
             let cfg = Config::load(&path)?;
             let mgr = TunnelManager::new(cfg.tunnel);
 
@@ -134,7 +149,10 @@ async fn main() -> Result<()> {
                     }
                 }
                 TunnelAction::Open { port, name } => {
-                    println!("Apertura de túnel ad-hoc al puerto {} (pendiente de relay configurado)", port);
+                    println!(
+                        "Apertura de túnel ad-hoc al puerto {} (pendiente de relay configurado)",
+                        port
+                    );
                 }
                 TunnelAction::Close { name } => {
                     println!("Cerrando túnel '{}'...", name);
@@ -145,7 +163,7 @@ async fn main() -> Result<()> {
 
         // ── ass logs ───────────────────────────
         Commands::Logs(args) => {
-            let path = resolve_config_path(cli.config);
+            let path = config_path.clone();
             let cfg = Config::load(&path)?;
             let log_dir = cfg.server.log_dir.clone();
             cmd_logs(&args.app, log_dir, args.lines, !args.no_follow).await
@@ -153,7 +171,7 @@ async fn main() -> Result<()> {
 
         // ── ass status ─────────────────────────
         Commands::Status => {
-            let path = resolve_config_path(cli.config);
+            let path = config_path.clone();
             let cfg = Config::load(&path)?;
             println!("ASS v{}", env!("CARGO_PKG_VERSION"));
             println!("\nApps configuradas:");
@@ -194,11 +212,8 @@ async fn main() -> Result<()> {
 
         // ── ass start ─────────────────────────
         Commands::Start(start_args) => {
-            let path = resolve_config_path(cli.config);
+            let path = config_path.clone();
             let cfg = Arc::new(Config::load(&path)?);
-
-            // Re-inicializar logging con settings de config
-            setup_logging(cli.verbose, &cfg.logging.level, &cfg.logging.format);
 
             info!(
                 version = env!("CARGO_PKG_VERSION"),
@@ -217,7 +232,11 @@ async fn main() -> Result<()> {
 
 async fn run(cfg: Arc<Config>, args: cli::StartArgs) -> Result<()> {
     // 1. Crear directorios necesarios
-    for dir in [&cfg.server.data_dir, &cfg.server.log_dir, &cfg.server.certs_dir] {
+    for dir in [
+        &cfg.server.data_dir,
+        &cfg.server.log_dir,
+        &cfg.server.certs_dir,
+    ] {
         std::fs::create_dir_all(dir)?;
     }
 
@@ -227,13 +246,18 @@ async fn run(cfg: Arc<Config>, args: cli::StartArgs) -> Result<()> {
 
     // 3. Provisionar certificados para todos los dominios
     if !args.no_tls && cfg.server.ssl_email.is_some() {
-        let all_domains: Vec<String> = cfg.apps.iter()
+        let all_domains: Vec<String> = cfg
+            .apps
+            .iter()
             .flat_map(|a| a.all_domains())
-            .filter(|d| !d.starts_with('*'))  // wildcards requieren DNS-01
+            .filter(|d| !d.starts_with('*')) // wildcards requieren DNS-01
             .collect();
 
         if !all_domains.is_empty() {
-            info!("Provisionando certificados TLS para {} dominio(s)...", all_domains.len());
+            info!(
+                "Provisionando certificados TLS para {} dominio(s)...",
+                all_domains.len()
+            );
             tls_manager.ensure_certs(&all_domains).await?;
         }
     } else if args.no_tls {
@@ -384,7 +408,11 @@ async fn run(cfg: Arc<Config>, args: cli::StartArgs) -> Result<()> {
 // ─────────────────────────────────────────────
 
 async fn cmd_init(args: cli::InitArgs) -> Result<()> {
-    let filename = if args.format == "json" { "ass.json" } else { "ass.toml" };
+    let filename = if args.format == "json" {
+        "ass.json"
+    } else {
+        "ass.toml"
+    };
     let path = PathBuf::from(filename);
 
     if path.exists() && !args.force {
@@ -422,9 +450,15 @@ async fn cmd_info() -> Result<()> {
     sys.refresh_all();
     println!("Sistema:");
     println!("  RAM total:       {} MB", sys.total_memory() / 1024 / 1024);
-    println!("  RAM disponible:  {} MB", sys.available_memory() / 1024 / 1024);
+    println!(
+        "  RAM disponible:  {} MB",
+        sys.available_memory() / 1024 / 1024
+    );
     println!("  CPUs:            {}", sys.cpus().len());
-    println!("  Kernel:          {}", sysinfo::System::kernel_version().unwrap_or_default());
+    println!(
+        "  Kernel:          {}",
+        sysinfo::System::kernel_version().unwrap_or_default()
+    );
 
     Ok(())
 }
@@ -437,7 +471,11 @@ async fn cmd_logs(app: &str, log_dir: PathBuf, lines: usize, follow: bool) -> Re
     let log_file = log_dir.join(format!("{}.stdout.log", app));
 
     if !log_file.exists() {
-        eprintln!("No se encontraron logs para '{}' en {}", app, log_file.display());
+        eprintln!(
+            "No se encontraron logs para '{}' en {}",
+            app,
+            log_file.display()
+        );
         std::process::exit(1);
     }
 
@@ -490,22 +528,22 @@ fn setup_logging(verbose: u8, level: &str, format: &str) {
 
     match format {
         "json" => {
-            tracing_subscriber::fmt()
+            let _ = tracing_subscriber::fmt()
                 .json()
                 .with_env_filter(filter)
-                .init();
+                .try_init();
         }
         "compact" => {
-            tracing_subscriber::fmt()
+            let _ = tracing_subscriber::fmt()
                 .compact()
                 .with_env_filter(filter)
-                .init();
+                .try_init();
         }
         _ => {
-            tracing_subscriber::fmt()
+            let _ = tracing_subscriber::fmt()
                 .pretty()
                 .with_env_filter(filter)
-                .init();
+                .try_init();
         }
     }
 }
@@ -517,11 +555,20 @@ fn setup_logging(verbose: u8, level: &str, format: &str) {
 fn print_banner(cfg: &Config) {
     println!();
     println!("  ░█████╗░░██████╗░██████╗");
-    println!("  ██╔══██╗██╔════╝██╔════╝  ASS v{}", env!("CARGO_PKG_VERSION"));
+    println!(
+        "  ██╔══██╗██╔════╝██╔════╝  ASS v{}",
+        env!("CARGO_PKG_VERSION")
+    );
     println!("  ███████║╚█████╗░╚█████╗░  App Service Server");
     println!("  ██╔══██║░╚═══██╗░╚═══██╗");
-    println!("  ██║  ██║██████╔╝██████╔╝  http://{}:{}", cfg.server.host, cfg.server.http_port);
-    println!("  ╚═╝  ╚═╝╚═════╝ ╚═════╝   https://{}:{}", cfg.server.host, cfg.server.https_port);
+    println!(
+        "  ██║  ██║██████╔╝██████╔╝  http://{}:{}",
+        cfg.server.host, cfg.server.http_port
+    );
+    println!(
+        "  ╚═╝  ╚═╝╚═════╝ ╚═════╝   https://{}:{}",
+        cfg.server.host, cfg.server.https_port
+    );
     println!();
 
     for app in &cfg.apps {
@@ -531,7 +578,9 @@ fn print_banner(cfg: &Config) {
             "  → {} @ {} (:{:?})",
             app.name,
             domain_str,
-            app.port.map(|p| p.to_string()).unwrap_or_else(|| "socket".into())
+            app.port
+                .map(|p| p.to_string())
+                .unwrap_or_else(|| "socket".into())
         );
     }
     println!();
@@ -543,7 +592,12 @@ fn print_banner(cfg: &Config) {
 
 fn resolve_config_path(path: Option<PathBuf>) -> PathBuf {
     path.unwrap_or_else(|| {
-        for candidate in ["ass.toml", "ass.json", "/etc/ass/ass.toml", "/etc/ass/ass.json"] {
+        for candidate in [
+            "ass.toml",
+            "ass.json",
+            "/etc/ass/ass.toml",
+            "/etc/ass/ass.json",
+        ] {
             let p = PathBuf::from(candidate);
             if p.exists() {
                 return p;

@@ -92,7 +92,8 @@ impl Updater {
             return Ok(());
         }
 
-        let download_url = info.download_url
+        let download_url = info
+            .download_url
             .context("No se encontró un asset para esta plataforma")?;
 
         info!(
@@ -126,11 +127,17 @@ impl Updater {
 
     /// Descarga el binario y retorna los bytes
     async fn download_binary(&self, url: &str) -> Result<Vec<u8>> {
-        let resp = self.http.get(url).send().await
+        let resp = self
+            .http
+            .get(url)
+            .send()
+            .await
             .with_context(|| format!("Error al descargar {}", url))?;
 
         let total = resp.content_length().unwrap_or(0);
-        let bytes = resp.bytes().await
+        let bytes = resp
+            .bytes()
+            .await
             .context("Error al leer body de descarga")?;
 
         info!(bytes = bytes.len(), total = total, "Descarga completada");
@@ -140,7 +147,8 @@ impl Updater {
     /// Verifica firma Ed25519 del binario
     fn verify_signature(&self, data: &[u8], sig_bytes: &[u8], key_hex: &str) -> Result<()> {
         // Decodificar clave pública (hex o base64)
-        let key_bytes = if key_hex.contains('+') || key_hex.contains('/') || key_hex.ends_with('=') {
+        let key_bytes = if key_hex.contains('+') || key_hex.contains('/') || key_hex.ends_with('=')
+        {
             base64::engine::general_purpose::STANDARD
                 .decode(key_hex)
                 .context("Error decodificando clave pública (base64)")?
@@ -163,15 +171,17 @@ impl Updater {
     /// Reemplaza el ejecutable actual de forma atómica
     async fn replace_binary(&self, new_binary: Vec<u8>) -> Result<()> {
         // Ruta del ejecutable actual
-        let current_exe = std::env::current_exe()
-            .context("No se pudo obtener la ruta del ejecutable actual")?;
+        let current_exe =
+            std::env::current_exe().context("No se pudo obtener la ruta del ejecutable actual")?;
 
         // Escribir en archivo temporal en el mismo directorio (misma partición para rename atómico)
-        let parent = current_exe.parent()
+        let parent = current_exe
+            .parent()
             .context("No se pudo obtener directorio del ejecutable")?;
 
         let tmp_path = parent.join(".ss_update_tmp");
-        tokio::fs::write(&tmp_path, &new_binary).await
+        tokio::fs::write(&tmp_path, &new_binary)
+            .await
             .context("Error escribiendo nuevo ejecutable temporal")?;
 
         // Dar permisos de ejecución
@@ -186,15 +196,20 @@ impl Updater {
         // Backup del ejecutable actual
         let backup_path = parent.join(".ss_backup");
         if current_exe.exists() {
-            tokio::fs::rename(&current_exe, &backup_path).await
+            tokio::fs::rename(&current_exe, &backup_path)
+                .await
                 .context("Error creando backup del ejecutable")?;
         }
 
         // Rename atómico
-        tokio::fs::rename(&tmp_path, &current_exe).await
+        tokio::fs::rename(&tmp_path, &current_exe)
+            .await
             .with_context(|| {
                 // Restaurar backup si falla
-                format!("Error al reemplazar ejecutable en {}", current_exe.display())
+                format!(
+                    "Error al reemplazar ejecutable en {}",
+                    current_exe.display()
+                )
             })?;
 
         info!(path = %current_exe.display(), "Ejecutable reemplazado atómicamente");
@@ -202,7 +217,8 @@ impl Updater {
     }
 
     async fn fetch_latest_release(&self) -> Result<GithubRelease> {
-        let resp = self.http
+        let resp = self
+            .http
             .get(&self.config.release_url)
             .header("Accept", "application/vnd.github.v3+json")
             .send()
@@ -234,7 +250,7 @@ fn is_newer(current: &str, latest: &str) -> bool {
 
 /// Selecciona el asset correcto según la plataforma
 fn find_asset_url(assets: &[GithubAsset]) -> Option<String> {
-    let os = std::env::consts::OS;    // linux, macos, windows
+    let os = std::env::consts::OS; // linux, macos, windows
     let arch = std::env::consts::ARCH; // x86_64, aarch64
 
     let os_tag = match os {
@@ -251,11 +267,13 @@ fn find_asset_url(assets: &[GithubAsset]) -> Option<String> {
     };
 
     // Buscar asset que contenga os y arch en el nombre
-    assets.iter().find(|a| {
-        let name = a.name.to_lowercase();
-        name.contains(os_tag) && name.contains(arch_tag) && !name.ends_with(".sig")
-    })
-    .map(|a| a.browser_download_url.clone())
+    assets
+        .iter()
+        .find(|a| {
+            let name = a.name.to_lowercase();
+            name.contains(os_tag) && name.contains(arch_tag) && !name.ends_with(".sig")
+        })
+        .map(|a| a.browser_download_url.clone())
 }
 
 // ─────────────────────────────────────────────
@@ -264,10 +282,12 @@ fn find_asset_url(assets: &[GithubAsset]) -> Option<String> {
 
 mod hex {
     pub fn decode(s: &str) -> Result<Vec<u8>, ()> {
-        if s.len() % 2 != 0 { return Err(()); }
+        if s.len() % 2 != 0 {
+            return Err(());
+        }
         (0..s.len())
             .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i+2], 16).map_err(|_| ()))
+            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).map_err(|_| ()))
             .collect()
     }
 }

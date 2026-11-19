@@ -67,7 +67,10 @@ impl TunnelManager {
             return Ok(());
         }
 
-        let relay = self.config.relay_server.as_ref()
+        let relay = self
+            .config
+            .relay_server
+            .as_ref()
             .context("tunnel.relay_server no configurado")?;
         let auth_token = self.config.auth_token.clone();
 
@@ -87,7 +90,9 @@ impl TunnelManager {
 
     /// Obtiene el estado de todos los túneles
     pub async fn status(&self) -> Vec<(String, TunnelState)> {
-        self.states.read().await
+        self.states
+            .read()
+            .await
             .iter()
             .map(|(k, v)| (k.clone(), v.clone()))
             .collect()
@@ -109,14 +114,19 @@ async fn tunnel_loop(
     const MAX_BACKOFF: Duration = Duration::from_secs(60);
 
     loop {
-        states.write().await.insert(name.clone(), TunnelState::Connecting);
+        states
+            .write()
+            .await
+            .insert(name.clone(), TunnelState::Connecting);
         info!(tunnel = %name, relay = %relay_server, "Conectando túnel...");
 
         match connect_tunnel(&entry, &relay_server, auth_token.as_deref()).await {
             Ok(public_url) => {
                 states.write().await.insert(
                     name.clone(),
-                    TunnelState::Connected { public_url: public_url.clone() },
+                    TunnelState::Connected {
+                        public_url: public_url.clone(),
+                    },
                 );
                 info!(tunnel = %name, url = %public_url, "Túnel activo");
                 backoff = Duration::from_secs(1); // reset backoff en conexión exitosa
@@ -124,7 +134,10 @@ async fn tunnel_loop(
             Err(e) => {
                 let msg = e.to_string();
                 error!(tunnel = %name, error = %msg, "Error en túnel");
-                states.write().await.insert(name.clone(), TunnelState::Error(msg));
+                states
+                    .write()
+                    .await
+                    .insert(name.clone(), TunnelState::Error(msg));
 
                 warn!(tunnel = %name, delay = ?backoff, "Reintentando conexión...");
                 sleep(backoff).await;
@@ -150,14 +163,17 @@ async fn connect_tunnel(
         relay_server, subdomain, entry.proto, entry.local_port
     );
 
-    let (ws_stream, _) = connect_async(&ws_url).await
+    let (ws_stream, _) = connect_async(&ws_url)
+        .await
         .with_context(|| format!("No se pudo conectar al relay: {}", relay_server))?;
 
     let (mut ws_write, mut ws_read) = ws_stream.split();
 
     // Autenticación
     if let Some(token) = auth_token {
-        ws_write.send(Message::Text(format!("AUTH {}", token).into())).await?;
+        ws_write
+            .send(Message::Text(format!("AUTH {}", token).into()))
+            .await?;
     }
 
     // Esperar confirmación y URL pública del relay

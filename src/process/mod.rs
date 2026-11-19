@@ -104,7 +104,10 @@ impl ProcessManager {
         };
 
         let supervised = Arc::new(RwLock::new(supervised));
-        self.processes.write().await.insert(name.clone(), supervised.clone());
+        self.processes
+            .write()
+            .await
+            .insert(name.clone(), supervised.clone());
 
         let log_dir = self.log_dir.clone();
 
@@ -120,9 +123,14 @@ impl ProcessManager {
     /// Envía señal a un proceso por nombre
     pub async fn signal(&self, name: &str, signal: ProcessSignal) -> Result<()> {
         let procs = self.processes.read().await;
-        let proc = procs.get(name)
+        let proc = procs
+            .get(name)
             .with_context(|| format!("No existe proceso '{}'", name))?;
-        proc.read().await.control_tx.send(signal).await
+        proc.read()
+            .await
+            .control_tx
+            .send(signal)
+            .await
             .context("Error al enviar señal al proceso")?;
         Ok(())
     }
@@ -165,7 +173,9 @@ async fn supervision_loop(
 
     loop {
         // Actualizar estado a Starting
-        supervised.write().await.state = ProcessState::Restarting { attempt: restart_count };
+        supervised.write().await.state = ProcessState::Restarting {
+            attempt: restart_count,
+        };
 
         match launch_process(&exec, &app, &log_dir).await {
             Ok(mut child) => {
@@ -228,7 +238,9 @@ async fn supervision_loop(
             }
             Err(e) => {
                 error!(app = %app.name, error = %e, "No se pudo lanzar proceso");
-                supervised.write().await.state = ProcessState::Failed { reason: e.to_string() };
+                supervised.write().await.state = ProcessState::Failed {
+                    reason: e.to_string(),
+                };
             }
         }
 
@@ -265,16 +277,19 @@ async fn supervision_loop(
 async fn launch_process(exec: &str, app: &AppConfig, log_dir: &PathBuf) -> Result<Child> {
     // Parsear el comando (soporta argumentos)
     let parts: Vec<&str> = exec.split_whitespace().collect();
-    let (bin, args) = parts.split_first()
-        .context("Comando exec vacío")?;
+    let (bin, args) = parts.split_first().context("Comando exec vacío")?;
 
     let stdout_log = log_dir.join(format!("{}.stdout.log", app.name));
     let stderr_log = log_dir.join(format!("{}.stderr.log", app.name));
 
     let stdout_file = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&stdout_log)?;
+        .create(true)
+        .append(true)
+        .open(&stdout_log)?;
     let stderr_file = std::fs::OpenOptions::new()
-        .create(true).append(true).open(&stderr_log)?;
+        .create(true)
+        .append(true)
+        .open(&stderr_log)?;
 
     let mut cmd = Command::new(bin);
     cmd.args(args)
@@ -297,7 +312,8 @@ async fn launch_process(exec: &str, app: &AppConfig, log_dir: &PathBuf) -> Resul
         cmd.current_dir(workdir);
     }
 
-    let child = cmd.spawn()
+    let child = cmd
+        .spawn()
         .with_context(|| format!("Error al ejecutar '{}'", exec))?;
 
     Ok(child)
@@ -320,8 +336,7 @@ impl BuildEngine {
         info!(app = %app.name, cmd = %build_cmd, "Ejecutando build...");
 
         let parts: Vec<&str> = build_cmd.split_whitespace().collect();
-        let (bin, args) = parts.split_first()
-            .context("Comando build vacío")?;
+        let (bin, args) = parts.split_first().context("Comando build vacío")?;
 
         let mut cmd = tokio::process::Command::new(bin);
         cmd.args(args);
@@ -334,7 +349,9 @@ impl BuildEngine {
             cmd.current_dir(workdir);
         }
 
-        let output = cmd.output().await
+        let output = cmd
+            .output()
+            .await
             .with_context(|| format!("Error al ejecutar build: {}", build_cmd))?;
 
         if output.status.success() {
@@ -349,7 +366,9 @@ impl BuildEngine {
 
     /// Hace git pull en el directorio de trabajo
     pub async fn git_pull(app: &AppConfig) -> Result<bool> {
-        let workdir = app.workdir.as_ref()
+        let workdir = app
+            .workdir
+            .as_ref()
             .context("workdir requerido para git pull")?;
 
         let output = tokio::process::Command::new("git")
@@ -375,7 +394,10 @@ impl BuildEngine {
     /// Clona un repositorio si workdir no existe
     pub async fn git_clone(app: &AppConfig) -> Result<()> {
         let repo = app.repo.as_ref().context("repo no configurado")?;
-        let workdir = app.workdir.as_ref().context("workdir requerido para git clone")?;
+        let workdir = app
+            .workdir
+            .as_ref()
+            .context("workdir requerido para git clone")?;
 
         if workdir.exists() {
             return Ok(());
@@ -384,7 +406,13 @@ impl BuildEngine {
         info!(app = %app.name, repo = %repo, "Clonando repositorio...");
 
         let output = tokio::process::Command::new("git")
-            .args(["clone", "--branch", &app.branch, repo, workdir.to_str().unwrap_or(".")])
+            .args([
+                "clone",
+                "--branch",
+                &app.branch,
+                repo,
+                workdir.to_str().unwrap_or("."),
+            ])
             .output()
             .await
             .context("Error al ejecutar git clone")?;
@@ -403,10 +431,7 @@ impl BuildEngine {
 //  Auto-updater de apps (git poll + rebuild)
 // ─────────────────────────────────────────────
 
-pub async fn auto_update_loop(
-    app: AppConfig,
-    process_manager: Arc<ProcessManager>,
-) {
+pub async fn auto_update_loop(app: AppConfig, process_manager: Arc<ProcessManager>) {
     let interval = Duration::from_secs(app.poll_interval_secs);
     let name = app.name.clone();
 
