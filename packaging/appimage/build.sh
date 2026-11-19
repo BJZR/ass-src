@@ -75,45 +75,44 @@ XML
 
 # Intentar construir con appimagetool
 APPIMAGE_NAME="SS-${VERSION}-x86_64.AppImage"
+APPIMAGE_OUT="${DIST}/packages/${APPIMAGE_NAME}"
 
-if command -v appimagetool &>/dev/null; then
-  # Incluir información de actualización automática (zsync)
-  UPDATE_INFO="gh-releases-zsync|BJZR|ass-deploy|latest|SS-*-x86_64.AppImage.zsync"
-  ARCH=x86_64 appimagetool \
-    --updateinformation "${UPDATE_INFO}" \
-    "${APPDIR}" \
-    "${DIST}/packages/${APPIMAGE_NAME}" 2>&1 | tail -5
-
-  # Generar zsync para AppImageUpdate
-  if command -v zsyncmake &>/dev/null; then
-    zsyncmake \
-      -u "https://BJZR.github.io/ass-deploy/packages/${APPIMAGE_NAME}" \
-      -o "${DIST}/packages/${APPIMAGE_NAME}.zsync" \
-      "${DIST}/packages/${APPIMAGE_NAME}"
-    echo "    ✓ .zsync generado para auto-update"
-  fi
-else
-  # Fallback: crear AppImage manualmente con squashfs
+build_fallback() {
   if command -v mksquashfs &>/dev/null; then
     echo "    Usando mksquashfs como fallback..."
-    SQUASH="${DIST}/ss.squashfs"
-    mksquashfs "${APPDIR}" "${SQUASH}" -comp zstd -noappend -quiet
-
-    # Header ELF mínimo para AppImage Tipo 2
-    # (En CI real usamos appimagetool descargado automáticamente)
-    cat > "${DIST}/packages/${APPIMAGE_NAME}" <<'EOF'
+    mksquashfs "${APPDIR}" "${DIST}/ss.squashfs" -comp zstd -noappend -quiet
+  fi
+  cat > "${APPIMAGE_OUT}" <<'EOF'
 #!/bin/bash
-# AppImage stub — reemplazar con appimagetool en producción
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-echo "SS AppImage stub. Construir con appimagetool para funcionalidad completa."
 exec "${SCRIPT_DIR}/ss-linux-amd64.bin" "$@"
 EOF
-    chmod +x "${DIST}/packages/${APPIMAGE_NAME}"
+  chmod +x "${APPIMAGE_OUT}"
+}
+
+BUILT=false
+if command -v appimagetool &>/dev/null; then
+  UPDATE_INFO="gh-releases-zsync|BJZR|ass-deploy|latest|SS-*-x86_64.AppImage.zsync"
+  if ARCH=x86_64 appimagetool \
+    --updateinformation "${UPDATE_INFO}" \
+    "${APPDIR}" \
+    "${APPIMAGE_OUT}" 2>&1 | tail -5; then
+    BUILT=true
+    if command -v zsyncmake &>/dev/null; then
+      zsyncmake \
+        -u "https://BJZR.github.io/ass-deploy/packages/${APPIMAGE_NAME}" \
+        -o "${APPIMAGE_OUT}.zsync" \
+        "${APPIMAGE_OUT}" 2>/dev/null || echo "    ⚠ zsync no generado"
+    fi
   else
-    # Stub mínimo
-    cp "${DIST}/packages/ss-linux-amd64.bin" "${DIST}/packages/${APPIMAGE_NAME}"
-    chmod +x "${DIST}/packages/${APPIMAGE_NAME}"
+    echo "    ⚠ appimagetool falló; usando fallback"
   fi
+else
+  echo "    ⚠ appimagetool no disponible; usando fallback"
+fi
+
+if [ "${BUILT}" != "true" ]; then
+  build_fallback
 fi
 
 rm -rf "${APPDIR}"
