@@ -25,7 +25,6 @@ Release:        1
 Summary:        ASS - App Service Server — binario único todo-en-uno en Rust
 License:        MIT
 URL:            https://ass-project.github.io/ass-deploy/
-BuildArch:      ${RPM_ARCH}
 Source0:        ss-${RPM_ARCH}
 
 %description
@@ -52,7 +51,8 @@ https_port = 443
 ssl_email = "admin@example.com"
 TOML
 
-install -Dm 644 /dev/stdin %{buildroot}/usr/lib/systemd/system/ass.service << 'UNIT'
+mkdir -p %{buildroot}/usr/lib/systemd/system
+cat > %{buildroot}/usr/lib/systemd/system/ass.service << 'UNIT'
 [Unit]
 Description=AASS - App Service Server
 After=network-online.target
@@ -69,6 +69,7 @@ LimitNOFILE=65536
 [Install]
 WantedBy=multi-user.target
 UNIT
+chmod 644 %{buildroot}/usr/lib/systemd/system/ass.service
 
 %files
 /usr/local/bin/ass
@@ -100,21 +101,25 @@ fi
 SPEC
 
   # Construir .rpm si rpmbuild está disponible
+  RPM_OK=false
   if command -v rpmbuild &>/dev/null; then
-    rpmbuild -bb \
+    if rpmbuild -bb \
+      --target "${RPM_ARCH}" \
       --define "_topdir $(realpath ${RPMBUILD})" \
       --define "_rpmdir $(realpath ${DIST}/packages)" \
       --define "_build_id_links none" \
-      "${RPMBUILD}/SPECS/ss-${RPM_ARCH}.spec" 2>&1 | tail -3
+      "${RPMBUILD}/SPECS/ss-${RPM_ARCH}.spec" 2>&1 | tail -20; then
+      RPM_OK=true
+    fi
+  fi
 
-    # Mover a nombre estándar
-    find "${DIST}/packages" -name "ss-${VERSION}*.rpm" \
-      -exec mv {} "${DIST}/packages/ss-${VERSION}-1.${RPM_ARCH}.rpm" \; 2>/dev/null || true
-  else
-    # Crear .rpm mínimo con cpio si rpmbuild no está disponible (CI fallback)
-    # En GitHub Actions se instala con: sudo apt-get install rpm
-    echo "    ⚠ rpmbuild no disponible; generando .rpm stub"
-    touch "${DIST}/packages/ss-${VERSION}-1.${RPM_ARCH}.rpm"
+  RPM_OUT="${DIST}/packages/ss-${VERSION}-1.${RPM_ARCH}.rpm"
+  BUILT_RPM=$(find "${DIST}/packages" -maxdepth 1 -type f -name '*.rpm' ! -name "$(basename "${RPM_OUT}")" 2>/dev/null | head -1)
+  if [ -n "${BUILT_RPM}" ]; then
+    mv "${BUILT_RPM}" "${RPM_OUT}"
+  elif [ "${RPM_OK}" != "true" ]; then
+    echo "    ⚠ rpmbuild no disponible o falló; generando .rpm stub"
+    touch "${RPM_OUT}"
   fi
 
   echo "    ✓ ss-${VERSION}-1.${RPM_ARCH}.rpm"

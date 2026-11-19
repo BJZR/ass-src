@@ -193,8 +193,8 @@ jobs:
       - name: Descargar appimagetool
         run: |
           wget -q "https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage" \
-            -O /usr/local/bin/appimagetool
-          chmod +x /usr/local/bin/appimagetool
+            -O /usr/local/bin/appimagetool || true
+          chmod +x /usr/local/bin/appimagetool 2>/dev/null || true
           # Extraer para evitar FUSE en CI
           /usr/local/bin/appimagetool --appimage-extract >/dev/null 2>&1 || true
           if [ -d squashfs-root ]; then
